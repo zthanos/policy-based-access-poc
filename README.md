@@ -39,6 +39,33 @@ Keycloak issues JWT access tokens. Kong represents the API Management governance
 - Immediate access revocation is possible via policy updates
 - Full request flow can be observed through distributed tracing
 
+## Architectural Layers
+
+- **APIM Layer**: Kong (API governance, routing, policies)
+- **Ingress Layer**: Envoy Gateway
+- **Service Layer**: REST API
+- **Authorization Layer**: OPA (policy engine)
+- **Identity Layer**: Keycloak (JWT issuer)
+- **Observability Layer**: OpenTelemetry + Jaeger
+
+## Design Principle
+
+Authorization is fully externalized from application services.
+
+The REST API does not contain any authorization logic. All access decisions are evaluated dynamically by OPA based on request context and policies.
+
+## Why Not Service-Based Authorization
+
+Traditional approaches embed authorization logic inside services.
+
+This leads to:
+
+- duplicated logic
+- difficult policy changes
+- delayed access revocation
+
+This PoC demonstrates how policy-based authorization avoids these issues.
+
 ## Architecture Diagrams
 
 The diagrams separate the major responsibilities into APIM, ingress, service, and policy layers.
@@ -195,7 +222,11 @@ Acceptance rule: the external client must call only the APIM simulator endpoint,
 
 ## Azure APIM Mapping
 
-Kong represents the replaceable APIM governance layer. Later, Azure APIM can replace Kong while keeping the same service model:
+Kong is used as a local APIM simulation.
+
+In production, this layer maps directly to Azure API Management.
+
+Azure APIM can replace Kong while keeping the same service model:
 
 1. APIM validates the Keycloak or federated token.
 2. APIM applies API-level policies and forwards to the cluster ingress.
