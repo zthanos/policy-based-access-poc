@@ -1,6 +1,25 @@
-# Kubernetes API Gateway + Keycloak + OPA PoC
+# Policy-Based API Access Control PoC
 
-Local proof of concept for:
+APIM (Kong) + Envoy Gateway + Keycloak + OPA with end-to-end distributed tracing.
+
+This project demonstrates a policy-based API access control architecture using a layered API platform approach.
+
+It validates how API access can be governed, authenticated, and authorized through distinct layers:
+
+- API Management (APIM simulation using Kong)
+- Gateway / ingress routing (Envoy)
+- Identity provider (Keycloak)
+- Policy-based authorization (OPA)
+- End-to-end observability (OpenTelemetry + Jaeger)
+
+The PoC proves that authorization logic can be fully externalized from application services and enforced through a centralized policy engine.
+
+```text
+External Client -> APIM Layer -> Ingress Layer -> Service Layer -> Policy Layer
+                   Kong          Envoy           FastAPI          OPA
+```
+
+Runtime flow:
 
 ```text
 External client -> Kong APIM simulator -> Envoy gateway -> FastAPI REST API
@@ -12,7 +31,17 @@ External client -> Kong APIM simulator -> Envoy gateway -> FastAPI REST API
 
 Keycloak issues JWT access tokens. Kong represents the API Management governance layer that can later be replaced by Azure APIM. Envoy validates JWTs and calls OPA through Envoy's external authorization API. The REST API contains no role or customer authorization rules.
 
+## What This PoC Proves
+
+- Policy-based authorization can replace hardcoded access control in services
+- API governance can be separated from application logic
+- Authorization decisions can be changed without redeploying services
+- Immediate access revocation is possible via policy updates
+- Full request flow can be observed through distributed tracing
+
 ## Architecture Diagrams
+
+The diagrams separate the major responsibilities into APIM, ingress, service, and policy layers.
 
 ### C4 System Context
 
@@ -100,6 +129,12 @@ Use one of the printed `trace_id` values:
 The REST API emits attributes such as `http.method`, `http.route`, `http.status_code`, `enduser.id`, `user.role`, `customer.id`, `opa.decision`, `opa.policy`, and `authorization.result`.
 
 Kong and Envoy also emit OpenTelemetry spans to the same collector, so Jaeger shows the APIM simulator and cluster ingress layers in addition to the REST API spans.
+
+Each request is traced across all layers:
+
+```text
+External Client -> APIM -> Gateway -> Service -> OPA -> Response
+```
 
 ## Example Traces
 
