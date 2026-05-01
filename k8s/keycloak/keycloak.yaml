@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: identity
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.0.7
+          args:
+            - start-dev
+            - --import-realm
+            - --http-port=8080
+            - --hostname-strict=false
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: admin
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              value: admin
+            - name: KC_HTTP_ENABLED
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /realms/master
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 5
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+      volumes:
+        - name: realm
+          configMap:
+            name: keycloak-realm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: identity
+spec:
+  selector:
+    app: keycloak
+  ports:
+    - name: http
+      port: 8031
+      targetPort: 8080

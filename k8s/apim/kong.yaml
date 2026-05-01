@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-declarative-config
+  namespace: apim
+data:
+  kong.yml: |
+    _format_version: "3.0"
+    _transform: true
+
+    services:
+      - name: envoy-ingress
+        url: http://envoy.gateway.svc.cluster.local:80
+        routes:
+          - name: public-api
+            paths:
+              - /
+            strip_path: false
+            preserve_host: false
+        plugins:
+          - name: opentelemetry
+            config:
+              endpoint: http://otel-collector.observability.svc.cluster.local:4318/v1/traces
+              resource_attributes:
+                service.name: kong-apim
+          - name: rate-limiting
+            config:
+              minute: 100
+              policy: local
+              fault_tolerant: true
+              hide_client_headers: false
+          - name: request-transformer
+            config:
+              add:
+                headers:
+                  - "x-apim-simulator:kong"
+                  - "x-apim-policy:rate-limit-100-per-minute"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong
+  namespace: apim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kong
+  template:
+    metadata:
+      labels:
+        app: kong
+    spec:
+      containers:
+        - name: kong
+          image: kong:3.8
+          env:
+            - name: KONG_DATABASE
+              value: "off"
+            - name: KONG_DECLARATIVE_CONFIG
+              value: /kong/declarative/kong.yml
+            - name: KONG_PROXY_LISTEN
+              value: 0.0.0.0:8000
+            - name: KONG_ADMIN_LISTEN
+              value: "off"
+            - name: KONG_LOG_LEVEL
+              value: info
+            - name: KONG_TRACING_INSTRUMENTATIONS
+              value: all
+            - name: KONG_TRACING_SAMPLING_RATE
+              value: "1.0"
+            - name: KONG_TRACING_PROPAGATION
+              value: w3c
+          ports:
+            - name: proxy
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            - name: declarative-config
+              mountPath: /kong/declarative
+      volumes:
+        - name: declarative-config
+          configMap:
+            name: kong-declarative-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong
+  namespace: apim
+spec:
+  selector:
+    app: kong
+  ports:
+    - name: proxy
+      port: 8000
+      targetPort: 8000

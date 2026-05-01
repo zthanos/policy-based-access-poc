@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy
+  namespace: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: envoy
+  template:
+    metadata:
+      labels:
+        app: envoy
+    spec:
+      containers:
+        - name: envoy
+          image: envoyproxy/envoy:v1.31-latest
+          args:
+            - -c
+            - /etc/envoy/envoy.yaml
+            - --service-cluster
+            - gateway
+            - --service-node
+            - gateway-0
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: admin
+              containerPort: 9901
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9901
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/envoy
+      volumes:
+        - name: config
+          configMap:
+            name: envoy-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy
+  namespace: gateway
+spec:
+  selector:
+    app: envoy
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opa
+  namespace: authorization
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opa
+  template:
+    metadata:
+      labels:
+        app: opa
+    spec:
+      containers:
+        - name: opa
+          image: openpolicyagent/opa:0.70.0-envoy
+          args:
+            - run
+            - --server
+            - --addr=0.0.0.0:8181
+            - --diagnostic-addr=0.0.0.0:8282
+            - --set=plugins.envoy_ext_authz_grpc.addr=:9191
+            - --set=plugins.envoy_ext_authz_grpc.path=envoy/authz/allow
+            - --set=decision_logs.console=true
+            - --set=distributed_tracing.type=grpc
+            - --set=distributed_tracing.address=otel-collector.observability.svc.cluster.local:4317
+            - --set=distributed_tracing.service_name=opa-service
+            - --set=distributed_tracing.sample_percentage=100
+            - --set=distributed_tracing.encryption=off
+            - /policies
+          ports:
+            - name: http
+              containerPort: 8181
+            - name: grpc
+              containerPort: 9191
+          readinessProbe:
+            httpGet:
+              path: /health?plugins
+              port: 8181
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: policy
+              mountPath: /policies/policy.rego
+              subPath: policy.rego
+      volumes:
+        - name: policy
+          configMap:
+            name: opa-policy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opa
+  namespace: authorization
+spec:
+  selector:
+    app: opa
+  ports:
+    - name: http
+      port: 8181
+      targetPort: 8181
+    - name: grpc
+      port: 9191
+      targetPort: 9191
