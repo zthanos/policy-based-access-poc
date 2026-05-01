@@ -204,6 +204,23 @@ OPA is the source of authorization rules:
 
 The REST API returns mock business data only. It does not decide who is allowed to see that data.
 
+## Policy Modularity
+
+OPA is used as a centralized Policy Decision Point, but the authorization rules are not implemented as a single monolithic policy.
+
+Policies are split by domain:
+
+- `common.rego`: shared request parsing, JWT extraction, roles and helper rules
+- `health.rego`: health endpoint access
+- `customers.rego`: customer account access policies
+- `admin.rego`: administrative customer access policies
+
+This demonstrates that policy-based authorization can be centralized at the enforcement/decision level while still keeping policy ownership modular and domain-oriented.
+
+Centralized authorization does not require centralized policy ownership.
+
+Each domain can maintain its own policy module, while OPA provides a consistent decision runtime.
+
 ## APIM Simulation Layer
 
 Kong runs in the `apim` namespace as the local API Management simulation layer.

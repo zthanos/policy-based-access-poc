@@ -86,6 +86,7 @@ function Invoke-Client {
 
 $forwards = @()
 $keepAliveForwards = @()
+$clientExitCode = 0
 try {
     $keycloakForward = Start-PortForward -Name "Keycloak" -Namespace "identity" -Service "keycloak" -LocalPort 8031 -RemotePort 8031
     if ($keycloakForward) { $forwards += $keycloakForward }
@@ -108,9 +109,7 @@ try {
     Write-Host "Jaeger UI: http://localhost:16686"
     Write-Host ""
     Invoke-Client
-    if ($LASTEXITCODE -ne 0) {
-        exit $LASTEXITCODE
-    }
+    $clientExitCode = $LASTEXITCODE
 
     Write-Host ""
     Write-Host "Jaeger UI remains open at http://localhost:16686"
@@ -121,4 +120,8 @@ try {
             Stop-Process -Id $forward.Id -Force
         }
     }
+}
+
+if ($clientExitCode -ne 0) {
+    exit $clientExitCode
 }

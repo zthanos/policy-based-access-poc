@@ -4,7 +4,7 @@ metadata:
   name: opa-policy
   namespace: authorization
 data:
-  policy.rego: |
+  common.rego: |
     package envoy.authz
 
     import rego.v1
@@ -40,10 +40,32 @@ data:
 
     roles := object.get(jwt, "roles", [])
 
+    is_admin if {
+    	"admin" in roles
+    }
+
+    log_decision(result, reason) if {
+    	print(sprintf("opa_decision allow=%v method=%s path=%s user=%s reason=%s", [
+    		result,
+    		method,
+    		http.path,
+    		object.get(jwt, "preferred_username", "anonymous"),
+    		reason,
+    	]))
+    }
+  health.rego: |
+    package envoy.authz
+
+    import rego.v1
+
     allow if {
     	method == "GET"
     	path == ["health"]
     }
+  customers.rego: |
+    package envoy.authz
+
+    import rego.v1
 
     allow if {
     	method == "GET"
@@ -65,24 +87,14 @@ data:
     	customer_id == jwt.customer_id
     	log_decision(true, sprintf("own customer access user=%s customer=%s", [jwt.preferred_username, customer_id]))
     }
+  admin.rego: |
+    package envoy.authz
+
+    import rego.v1
 
     allow if {
     	method == "GET"
     	path == ["admin", "customers"]
     	is_admin
     	log_decision(true, sprintf("admin list access user=%s", [jwt.preferred_username]))
-    }
-
-    is_admin if {
-    	"admin" in roles
-    }
-
-    log_decision(result, reason) if {
-    	print(sprintf("opa_decision allow=%v method=%s path=%s user=%s reason=%s", [
-    		result,
-    		method,
-    		http.path,
-    		object.get(jwt, "preferred_username", "anonymous"),
-    		reason,
-    	]))
     }

@@ -42,7 +42,7 @@ sequenceDiagram
 
 ## Why OPA Owns Authorization
 
-The REST API does not inspect roles or customer ownership to decide access. OPA evaluates those rules from `opa/policy.rego`, mounted into Kubernetes as `opa-policy`.
+The REST API does not inspect roles or customer ownership to decide access. OPA evaluates those rules from `opa/policies/*.rego`, mounted into Kubernetes as `opa-policy`.
 
 This keeps the later Azure APIM design stable. APIM can replace Envoy as the gateway that validates token context and invokes OPA or an equivalent policy decision point, while the REST API remains unchanged.
 

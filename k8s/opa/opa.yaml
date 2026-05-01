@@ -43,8 +43,17 @@ spec:
             periodSeconds: 5
           volumeMounts:
             - name: policy
-              mountPath: /policies/policy.rego
-              subPath: policy.rego
+              mountPath: /policies/common.rego
+              subPath: common.rego
+            - name: policy
+              mountPath: /policies/health.rego
+              subPath: health.rego
+            - name: policy
+              mountPath: /policies/customers.rego
+              subPath: customers.rego
+            - name: policy
+              mountPath: /policies/admin.rego
+              subPath: admin.rego
       volumes:
         - name: policy
           configMap:
