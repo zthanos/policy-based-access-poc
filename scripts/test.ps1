@@ -30,6 +30,45 @@ function Test-JaegerUi {
     }
 }
 
+function Test-JaegerTrace {
+    param([string] $TraceId)
+
+    try {
+        $response = Invoke-RestMethod "http://localhost:16686/api/traces/$TraceId" -TimeoutSec 3
+        return $null -ne $response.data -and $response.data.Count -gt 0
+    } catch {
+        return $false
+    }
+}
+
+function Wait-JaegerTraces {
+    param(
+        [string[]] $TraceIds,
+        [int] $TimeoutSeconds = 30
+    )
+
+    $uniqueTraceIds = @($TraceIds | Where-Object { $_ } | Sort-Object -Unique)
+    if ($uniqueTraceIds.Count -eq 0) {
+        Write-Warning "No trace ids were captured from the client output; skipping Jaeger trace verification."
+        return
+    }
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $missingTraceIds = $uniqueTraceIds
+
+    while ((Get-Date) -lt $deadline) {
+        $missingTraceIds = @($uniqueTraceIds | Where-Object { -not (Test-JaegerTrace -TraceId $_) })
+        if ($missingTraceIds.Count -eq 0) {
+            Write-Host "Verified $($uniqueTraceIds.Count) trace(s) in Jaeger."
+            return
+        }
+
+        Start-Sleep -Seconds 1
+    }
+
+    throw "Timed out waiting for trace(s) in Jaeger: $($missingTraceIds -join ', ')"
+}
+
 function Start-PortForward {
     param(
         [string] $Name,
@@ -87,14 +126,45 @@ function Get-PythonCommand {
 
 function Invoke-Client {
     Write-Host "Running the traced external client with Docker."
-    docker run --rm `
-        -v "$root\client:/client:ro" `
-        -e KEYCLOAK_URL=http://host.docker.internal:8031 `
-        -e KEYCLOAK_HOST_HEADER=localhost:8031 `
-        -e API_URL=http://host.docker.internal:10000 `
-        -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces `
-        python:3.12-slim `
-        sh -c "pip install --quiet -r /client/requirements.txt && python /client/client.py"
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = docker run --rm `
+            -v "$root\client:/client:ro" `
+            -e KEYCLOAK_URL=http://host.docker.internal:8031 `
+            -e KEYCLOAK_HOST_HEADER=localhost:8031 `
+            -e API_URL=http://host.docker.internal:10000 `
+            -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces `
+            python:3.12-slim `
+            sh -c "pip install --quiet -r /client/requirements.txt && python /client/client.py" 2>&1
+
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    $lines = @($output | ForEach-Object {
+        if ($_ -is [System.Management.Automation.ErrorRecord]) {
+            $_.Exception.Message
+        } else {
+            $_.ToString()
+        }
+    })
+    foreach ($line in $lines) {
+        Write-Host $line
+    }
+
+    $traceIds = @()
+    foreach ($line in $lines) {
+        if ($line -match "trace_id=([0-9a-fA-F]{32})") {
+            $traceIds += $Matches[1].ToLowerInvariant()
+        }
+    }
+
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        TraceIds = $traceIds
+    }
 }
 
 $forwards = @()
@@ -121,11 +191,13 @@ try {
     Write-Host "Envoy debug:    http://localhost:10080"
     Write-Host "Jaeger UI: http://localhost:16686"
     Write-Host ""
-    Invoke-Client
-    $clientExitCode = $LASTEXITCODE
+    $clientResult = Invoke-Client
+    $clientExitCode = $clientResult.ExitCode
 
-    Write-Host "Waiting briefly for trace export to settle..."
-    Start-Sleep -Seconds 3
+    if ($clientExitCode -eq 0) {
+        Write-Host "Waiting for trace export to settle in Jaeger..."
+        Wait-JaegerTraces -TraceIds $clientResult.TraceIds -TimeoutSeconds 45
+    }
 
     Write-Host ""
     Write-Host "Jaeger UI remains open at http://localhost:16686"
