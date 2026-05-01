@@ -44,12 +44,38 @@ data:
     	"admin" in roles
     }
 
+    username := object.get(jwt, "preferred_username", "anonymous")
+
+    request_header(name, fallback) := value if {
+    	value := object.get(http.headers, name, fallback)
+    }
+
+    request_risk_level := request_header("x-risk-level", "normal")
+
+    request_purpose := request_header("x-purpose", "")
+
+    request_channel := request_header("x-channel", "web")
+
+    request_time_window := request_header("x-time-window", "business_hours")
+
+    request_device_trust := request_header("x-device-trust", "trusted")
+
+    user_department := object.get(jwt, "department", "")
+
+    user_region := object.get(jwt, "region", "")
+
+    user_customer_segment := object.get(jwt, "customer_segment", "")
+
+    customer_attributes(customer_id) := attrs if {
+    	attrs := data.customers[customer_id]
+    }
+
     log_decision(result, reason) if {
     	print(sprintf("opa_decision allow=%v method=%s path=%s user=%s reason=%s", [
     		result,
     		method,
     		http.path,
-    		object.get(jwt, "preferred_username", "anonymous"),
+    		username,
     		reason,
     	]))
     }
@@ -85,7 +111,59 @@ data:
     	path[2] == "accounts"
     	"user" in roles
     	customer_id == jwt.customer_id
+    	request_risk_level != "high"
     	log_decision(true, sprintf("own customer access user=%s customer=%s", [jwt.preferred_username, customer_id]))
+    }
+  abac.rego: |
+    package envoy.authz
+
+    import rego.v1
+
+    allow if {
+    	method == "GET"
+    	count(path) == 3
+    	path[0] == "customers"
+    	customer_id := path[1]
+    	path[2] == "accounts"
+    	"relationship_manager" in roles
+    	customer := customer_attributes(customer_id)
+    	user_region == customer.region
+    	customer.segment == "corporate"
+    	request_risk_level != "high"
+    	log_decision(true, sprintf("abac relationship manager access user=%s customer=%s region=%s segment=%s risk=%s", [
+    		username,
+    		customer_id,
+    		customer.region,
+    		customer.segment,
+    		request_risk_level,
+    	]))
+    }
+  rebac.rego: |
+    package envoy.authz
+
+    import rego.v1
+
+    allow if {
+    	method == "GET"
+    	count(path) == 3
+    	path[0] == "customers"
+    	customer_id := path[1]
+    	path[2] == "accounts"
+    	customer_id in object.get(data.relationships.relationship_manager_of, username, [])
+    	request_risk_level != "high"
+    	log_decision(true, sprintf("rebac relationship manager access user=%s customer=%s", [username, customer_id]))
+    }
+
+    allow if {
+    	method == "GET"
+    	count(path) == 3
+    	path[0] == "customers"
+    	customer_id := path[1]
+    	path[2] == "accounts"
+    	customer_id in object.get(data.relationships.auditor_of, username, [])
+    	request_purpose == "audit"
+    	request_risk_level != "high"
+    	log_decision(true, sprintf("rebac auditor access user=%s customer=%s purpose=%s", [username, customer_id, request_purpose]))
     }
   admin.rego: |
     package envoy.authz
@@ -97,4 +175,35 @@ data:
     	path == ["admin", "customers"]
     	is_admin
     	log_decision(true, sprintf("admin list access user=%s", [jwt.preferred_username]))
+    }
+  customers.json: |
+    {
+      "customers": {
+        "CUST-001": {
+          "region": "GR",
+          "segment": "corporate"
+        },
+        "CUST-002": {
+          "region": "GR",
+          "segment": "retail"
+        },
+        "CUST-003": {
+          "region": "DE",
+          "segment": "corporate"
+        }
+      }
+    }
+  relationships.json: |
+    {
+      "relationships": {
+        "relationship_manager_of": {
+          "user1": ["CUST-001"]
+        },
+        "auditor_of": {
+          "auditor1": ["CUST-001", "CUST-002"]
+        },
+        "supervises": {
+          "manager1": ["user1"]
+        }
+      }
     }

@@ -20,5 +20,6 @@ allow if {
 	path[2] == "accounts"
 	"user" in roles
 	customer_id == jwt.customer_id
+	request_risk_level != "high"
 	log_decision(true, sprintf("own customer access user=%s customer=%s", [jwt.preferred_username, customer_id]))
 }

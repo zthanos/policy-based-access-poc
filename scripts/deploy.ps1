@@ -15,6 +15,10 @@ kubectl apply -f .\k8s\app
 kubectl apply -f .\k8s\envoy
 kubectl apply -f .\k8s\apim
 
+Write-Host "Restarting ConfigMap-backed services..."
+kubectl rollout restart deployment/keycloak -n identity
+kubectl rollout restart deployment/opa -n authorization
+
 Write-Host "Waiting for deployments..."
 kubectl rollout status deployment/jaeger -n observability --timeout=120s
 kubectl rollout status deployment/otel-collector -n observability --timeout=120s

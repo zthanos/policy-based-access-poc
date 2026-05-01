@@ -21,16 +21,28 @@ function Test-PortOpen {
     }
 }
 
+function Test-JaegerUi {
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing http://localhost:16686 -TimeoutSec 3
+        return $response.StatusCode -eq 200 -and $response.Content -match "<title>Jaeger UI</title>"
+    } catch {
+        return $false
+    }
+}
+
 function Start-PortForward {
     param(
         [string] $Name,
         [string] $Namespace,
         [string] $Service,
         [int] $LocalPort,
-        [int] $RemotePort
+        [int] $RemotePort,
+        [scriptblock] $ReadyCheck = $null
     )
 
-    if (Test-PortOpen -Port $LocalPort) {
+    $isReady = if ($ReadyCheck) { & $ReadyCheck } else { Test-PortOpen -Port $LocalPort }
+
+    if ($isReady) {
         Write-Host "$Name already reachable on localhost:$LocalPort"
         return $null
     }
@@ -43,7 +55,8 @@ function Start-PortForward {
 
     for ($i = 0; $i -lt 40; $i++) {
         Start-Sleep -Milliseconds 250
-        if (Test-PortOpen -Port $LocalPort) {
+        $isReady = if ($ReadyCheck) { & $ReadyCheck } else { Test-PortOpen -Port $LocalPort }
+        if ($isReady) {
             return $process
         }
         if ($process.HasExited) {
@@ -100,7 +113,7 @@ try {
     $collectorForward = Start-PortForward -Name "OpenTelemetry Collector" -Namespace "observability" -Service "otel-collector" -LocalPort 4318 -RemotePort 4318
     if ($collectorForward) { $forwards += $collectorForward }
 
-    $jaegerForward = Start-PortForward -Name "Jaeger" -Namespace "observability" -Service "jaeger" -LocalPort 16686 -RemotePort 16686
+    $jaegerForward = Start-PortForward -Name "Jaeger" -Namespace "observability" -Service "jaeger" -LocalPort 16686 -RemotePort 16686 -ReadyCheck { Test-JaegerUi }
     if ($jaegerForward) { $keepAliveForwards += $jaegerForward }
 
     Write-Host ""
@@ -110,6 +123,9 @@ try {
     Write-Host ""
     Invoke-Client
     $clientExitCode = $LASTEXITCODE
+
+    Write-Host "Waiting briefly for trace export to settle..."
+    Start-Sleep -Seconds 3
 
     Write-Host ""
     Write-Host "Jaeger UI remains open at http://localhost:16686"

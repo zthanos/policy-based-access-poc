@@ -78,8 +78,13 @@ def _current_trace_id() -> str:
     return f"{context.trace_id:032x}"
 
 
-def call_api(method: str, path: str, token: str | None = None) -> tuple[int, str, str]:
-    headers = {}
+def call_api(
+    method: str,
+    path: str,
+    token: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
+    headers = extra_headers.copy() if extra_headers else {}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     propagate.inject(headers)
@@ -99,12 +104,26 @@ def call_api(method: str, path: str, token: str | None = None) -> tuple[int, str
         return exc.code, exc.read().decode(), trace_id
 
 
-def run_case(label: str, method: str, path: str, expected: int, token: str | None = None) -> Result:
+def run_case(
+    label: str,
+    method: str,
+    path: str,
+    expected: int,
+    token: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+    authorization_model: str = "n/a",
+) -> Result:
     with tracer.start_as_current_span(label, kind=SpanKind.CLIENT) as span:
+        headers = extra_headers.copy() if extra_headers else {}
+        if authorization_model != "n/a":
+            headers["x-authorization-model"] = authorization_model
+
         span.set_attribute("http.method", method)
         span.set_attribute("http.url", f"{API_URL}{path}")
         span.set_attribute("http.target", path)
-        status, _, trace_id = call_api(method, path, token)
+        span.set_attribute("authorization.model", authorization_model)
+        span.set_attribute("authorization.scenario", label)
+        status, _, trace_id = call_api(method, path, token, headers)
         span.set_attribute("http.status_code", status)
         span.set_attribute("authorization.result", "allow" if status == 200 else "deny")
         if status >= 400:
@@ -123,14 +142,108 @@ def main() -> int:
 
     user_token = request_token("user1")
     admin_token = request_token("admin")
+    auditor_token = request_token("auditor1")
 
     results = [
-        run_case("GET /health", "GET", "/health", 200),
-        run_case("GET /customers/CUST-001/accounts", "GET", "/customers/CUST-001/accounts", 200, user_token),
-        run_case("GET /customers/CUST-002/accounts", "GET", "/customers/CUST-002/accounts", 403, user_token),
-        run_case("GET /admin/customers as user1", "GET", "/admin/customers", 403, user_token),
-        run_case("GET /admin/customers as admin", "GET", "/admin/customers", 200, admin_token),
-        run_case("GET /customers/CUST-001/accounts no token", "GET", "/customers/CUST-001/accounts", 401),
+        run_case("GET /health", "GET", "/health", 200, authorization_model="Public"),
+        run_case(
+            "GET /customers/CUST-001/accounts",
+            "GET",
+            "/customers/CUST-001/accounts",
+            200,
+            user_token,
+            authorization_model="Customer Scope",
+        ),
+        run_case(
+            "GET /customers/CUST-002/accounts",
+            "GET",
+            "/customers/CUST-002/accounts",
+            403,
+            user_token,
+            authorization_model="Customer Scope",
+        ),
+        run_case(
+            "ABAC RM GR -> CUST-001 GR",
+            "GET",
+            "/customers/CUST-001/accounts",
+            200,
+            user_token,
+            authorization_model="ABAC",
+        ),
+        run_case(
+            "ABAC RM GR -> CUST-003 DE",
+            "GET",
+            "/customers/CUST-003/accounts",
+            403,
+            user_token,
+            authorization_model="ABAC",
+        ),
+        run_case(
+            "ABAC high risk request",
+            "GET",
+            "/customers/CUST-001/accounts",
+            403,
+            user_token,
+            {"x-risk-level": "high"},
+            authorization_model="ABAC",
+        ),
+        run_case(
+            "ReBAC user1 -> CUST-001",
+            "GET",
+            "/customers/CUST-001/accounts",
+            200,
+            user_token,
+            authorization_model="ReBAC",
+        ),
+        run_case(
+            "ReBAC user1 -> CUST-002",
+            "GET",
+            "/customers/CUST-002/accounts",
+            403,
+            user_token,
+            authorization_model="ReBAC",
+        ),
+        run_case(
+            "ReBAC auditor1 audit CUST-002",
+            "GET",
+            "/customers/CUST-002/accounts",
+            200,
+            auditor_token,
+            {"x-purpose": "audit"},
+            authorization_model="ReBAC",
+        ),
+        run_case(
+            "ReBAC auditor1 sales CUST-002",
+            "GET",
+            "/customers/CUST-002/accounts",
+            403,
+            auditor_token,
+            {"x-purpose": "sales"},
+            authorization_model="ReBAC",
+        ),
+        run_case(
+            "GET /admin/customers as user1",
+            "GET",
+            "/admin/customers",
+            403,
+            user_token,
+            authorization_model="RBAC",
+        ),
+        run_case(
+            "GET /admin/customers as admin",
+            "GET",
+            "/admin/customers",
+            200,
+            admin_token,
+            authorization_model="RBAC",
+        ),
+        run_case(
+            "GET /customers/CUST-001/accounts no token",
+            "GET",
+            "/customers/CUST-001/accounts",
+            401,
+            authorization_model="Authentication",
+        ),
     ]
 
     failures = [result for result in results if result.status != result.expected]
@@ -143,6 +256,8 @@ def main() -> int:
 
     print()
     print("All scenarios passed.")
+    trace.get_tracer_provider().force_flush(timeout_millis=5000)
+    trace.get_tracer_provider().shutdown()
     return 0
 
 

@@ -93,6 +93,9 @@ async def request_logging(request: Request, call_next):
             jwt_span.set_attribute("enduser.id", username)
             jwt_span.set_attribute("user.role", ",".join(roles))
             jwt_span.set_attribute("customer.id", identity.get("customer_id", ""))
+            jwt_span.set_attribute("user.department", identity.get("department", ""))
+            jwt_span.set_attribute("user.region", identity.get("region", ""))
+            jwt_span.set_attribute("user.customer_segment", identity.get("customer_segment", ""))
 
         request.state.identity = identity
         span.set_attribute("http.method", request.method)
@@ -100,6 +103,12 @@ async def request_logging(request: Request, call_next):
         span.set_attribute("enduser.id", username)
         span.set_attribute("user.role", ",".join(_roles(identity)))
         span.set_attribute("customer.id", identity.get("customer_id", ""))
+        span.set_attribute("request.risk_level", request.headers.get("x-risk-level", "normal"))
+        span.set_attribute("request.purpose", request.headers.get("x-purpose", ""))
+        span.set_attribute("request.channel", request.headers.get("x-channel", "web"))
+        span.set_attribute("request.time_window", request.headers.get("x-time-window", "business_hours"))
+        span.set_attribute("request.device_trust", request.headers.get("x-device-trust", "trusted"))
+        span.set_attribute("authorization.model", request.headers.get("x-authorization-model", ""))
 
         logger.info("incoming_request path=%s user=%s", request.url.path, username)
         response = await call_next(request)
@@ -153,7 +162,8 @@ def admin_customers(request: Request):
         span.set_attribute("http.route", "/admin/customers")
         return {
             "customers": [
-                {"customer_id": "CUST-001", "name": "Example Retail"},
-                {"customer_id": "CUST-002", "name": "Example Manufacturing"},
+                {"customer_id": "CUST-001", "name": "Example Corporate GR"},
+                {"customer_id": "CUST-002", "name": "Example Retail GR"},
+                {"customer_id": "CUST-003", "name": "Example Corporate DE"},
             ]
         }

@@ -52,8 +52,20 @@ spec:
               mountPath: /policies/customers.rego
               subPath: customers.rego
             - name: policy
+              mountPath: /policies/abac.rego
+              subPath: abac.rego
+            - name: policy
+              mountPath: /policies/rebac.rego
+              subPath: rebac.rego
+            - name: policy
               mountPath: /policies/admin.rego
               subPath: admin.rego
+            - name: policy
+              mountPath: /policies/customers.json
+              subPath: customers.json
+            - name: policy
+              mountPath: /policies/relationships.json
+              subPath: relationships.json
       volumes:
         - name: policy
           configMap:

@@ -11,7 +11,10 @@ data:
       "roles": {
         "realm": [
           { "name": "user" },
-          { "name": "admin" }
+          { "name": "admin" },
+          { "name": "relationship_manager" },
+          { "name": "auditor" },
+          { "name": "manager" }
         ]
       },
       "clients": [
@@ -53,6 +56,45 @@ data:
               }
             },
             {
+              "name": "department",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "config": {
+                "user.attribute": "department",
+                "claim.name": "department",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "region",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "config": {
+                "user.attribute": "region",
+                "claim.name": "region",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "customer segment",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "config": {
+                "user.attribute": "customer_segment",
+                "claim.name": "customer_segment",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
               "name": "audience poc-client",
               "protocol": "openid-connect",
               "protocolMapper": "oidc-audience-mapper",
@@ -75,7 +117,10 @@ data:
           "emailVerified": true,
           "requiredActions": [],
           "attributes": {
-            "customer_id": ["CUST-001"]
+            "customer_id": ["CUST-001"],
+            "department": ["relationship-management"],
+            "region": ["GR"],
+            "customer_segment": ["corporate"]
           },
           "credentials": [
             {
@@ -84,7 +129,53 @@ data:
               "temporary": false
             }
           ],
-          "realmRoles": ["user"]
+          "realmRoles": ["user", "relationship_manager"]
+        },
+        {
+          "username": "auditor1",
+          "enabled": true,
+          "firstName": "Auditor",
+          "lastName": "One",
+          "email": "auditor1@example.local",
+          "emailVerified": true,
+          "requiredActions": [],
+          "attributes": {
+            "customer_id": ["AUDITOR"],
+            "department": ["audit"],
+            "region": ["GR"],
+            "customer_segment": ["corporate"]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "password",
+              "temporary": false
+            }
+          ],
+          "realmRoles": ["auditor"]
+        },
+        {
+          "username": "manager1",
+          "enabled": true,
+          "firstName": "Manager",
+          "lastName": "One",
+          "email": "manager1@example.local",
+          "emailVerified": true,
+          "requiredActions": [],
+          "attributes": {
+            "customer_id": ["MANAGER"],
+            "department": ["relationship-management"],
+            "region": ["GR"],
+            "customer_segment": ["corporate"]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "password",
+              "temporary": false
+            }
+          ],
+          "realmRoles": ["manager"]
         },
         {
           "username": "admin",

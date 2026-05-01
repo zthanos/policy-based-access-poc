@@ -1,0 +1,13 @@
+{
+  "relationships": {
+    "relationship_manager_of": {
+      "user1": ["CUST-001"]
+    },
+    "auditor_of": {
+      "auditor1": ["CUST-001", "CUST-002"]
+    },
+    "supervises": {
+      "manager1": ["user1"]
+    }
+  }
+}

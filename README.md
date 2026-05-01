@@ -14,6 +14,13 @@ It validates how API access can be governed, authenticated, and authorized throu
 
 The PoC proves that authorization logic can be fully externalized from application services and enforced through a centralized policy engine.
 
+Core architecture message:
+
+```text
+One Policy Decision Point, multiple authorization models:
+RBAC + ABAC + ReBAC
+```
+
 ```text
 External Client -> APIM Layer -> Ingress Layer -> Service Layer -> Policy Layer
                    Kong          Envoy           FastAPI          OPA
@@ -37,7 +44,35 @@ Keycloak issues JWT access tokens. Kong represents the API Management governance
 - API governance can be separated from application logic
 - Authorization decisions can be changed without redeploying services
 - Immediate access revocation is possible via policy updates
+- OPA can evaluate RBAC, ABAC, and ReBAC rules from the same application request
+- Policy model extensibility, domain-scoped policy ownership, and model coexistence can be demonstrated without service redeployment
 - Full request flow can be observed through distributed tracing
+
+## Authorization Models
+
+This PoC demonstrates multiple authorization models using OPA:
+
+- **RBAC**: access based on roles such as `admin`, `user`, `auditor`, `relationship_manager`
+- **Customer-scope access**: users can access only their assigned customer
+- **ABAC**: access based on user, resource, and request attributes
+- **ReBAC**: access based on relationships between users and customers
+
+All models are evaluated by OPA without changing the REST API business logic.
+
+The REST API remains authorization-agnostic.
+
+New authorization models are added by extending OPA policies and policy data, not by changing service code.
+
+| Model | Scenario | Expected |
+| --- | --- | --- |
+| RBAC | admin accesses all customers | `200` |
+| Customer Scope | user accesses own customer | `200` |
+| Customer Scope | user accesses another customer | `403` |
+| ABAC | RM same region + allowed segment | `200` |
+| ABAC | RM different region | `403` |
+| ABAC | high-risk request | `403` |
+| ReBAC | auditor assigned to customer with audit purpose | `200` |
+| ReBAC | auditor assigned to customer with non-audit purpose | `403` |
 
 ## Architectural Layers
 
@@ -120,6 +155,13 @@ Then it runs `client/client.py`. The client calls only Kong on `localhost:10000`
 GET /health                                  -> 200 trace_id=...
 GET /customers/CUST-001/accounts             -> 200 trace_id=...
 GET /customers/CUST-002/accounts             -> 403 trace_id=...
+ABAC RM GR -> CUST-001 GR                    -> 200 trace_id=...
+ABAC RM GR -> CUST-003 DE                    -> 403 trace_id=...
+ABAC high risk request                       -> 403 trace_id=...
+ReBAC user1 -> CUST-001                      -> 200 trace_id=...
+ReBAC user1 -> CUST-002                      -> 403 trace_id=...
+ReBAC auditor1 audit CUST-002                -> 200 trace_id=...
+ReBAC auditor1 sales CUST-002                -> 403 trace_id=...
 GET /admin/customers as user1                -> 403 trace_id=...
 GET /admin/customers as admin                -> 200 trace_id=...
 GET /customers/CUST-001/accounts no token    -> 401 trace_id=...
@@ -153,7 +195,16 @@ Use one of the printed `trace_id` values:
 4. Inspect `kong-apim`, `envoy-gateway`, and `opa-service` spans to see the APIM, ingress, and authorization layers.
 5. For requests denied at Envoy, inspect the client, Kong, and Envoy spans. Those requests do not reach FastAPI because OPA enforcement happens at the gateway.
 
-The REST API emits attributes such as `http.method`, `http.route`, `http.status_code`, `enduser.id`, `user.role`, `customer.id`, `opa.decision`, `opa.policy`, and `authorization.result`.
+To distinguish RBAC, customer-scope, ABAC, and ReBAC traces in Jaeger, filter `external-client` spans by the `authorization.model` tag:
+
+| Tag filter | Meaning |
+| --- | --- |
+| `authorization.model=RBAC` | role-based admin access scenarios |
+| `authorization.model=Customer Scope` | own-customer and cross-customer scenarios |
+| `authorization.model=ABAC` | region, segment, and risk-level scenarios |
+| `authorization.model=ReBAC` | relationship-manager and auditor relationship scenarios |
+
+The REST API emits attributes such as `http.method`, `http.route`, `http.status_code`, `enduser.id`, `user.role`, `customer.id`, `authorization.model`, `opa.decision`, `opa.policy`, and `authorization.result`.
 
 Kong and Envoy also emit OpenTelemetry spans to the same collector, so Jaeger shows the APIM simulator and cluster ingress layers in addition to the REST API spans.
 
@@ -189,17 +240,22 @@ Realm: `poc`
 
 Client: `poc-client`
 
-| User | Password | Roles | Customer |
+| User | Password | Roles | Customer | Attributes / Relationships |
 | --- | --- | --- | --- |
-| `user1` | `password` | `user` | `CUST-001` |
-| `admin` | `password` | `admin` | `ADMIN` |
+| `user1` | `password` | `user`, `relationship_manager` | `CUST-001` | `region=GR`, `department=relationship-management`, `customer_segment=corporate`, `relationship_manager_of CUST-001` |
+| `auditor1` | `password` | `auditor` | `AUDITOR` | `region=GR`, `department=audit`, `auditor_of CUST-001,CUST-002` |
+| `manager1` | `password` | `manager` | `MANAGER` | `region=GR`, `department=relationship-management`, `supervises user1` |
+| `admin` | `password` | `admin` | `ADMIN` | administrative access |
 
-## Authorization Model
+## Authorization Rules
 
 OPA is the source of authorization rules:
 
 - `/health` is public.
-- `role=user` can read only `/customers/{customer_id}/accounts` for their own `customer_id`.
+- **RBAC/customer-scope**: `role=user` can read only `/customers/{customer_id}/accounts` for their own `customer_id`.
+- **ABAC**: `role=relationship_manager` can access corporate customer accounts only when the user and customer are in the same region and the request risk level is not `high`.
+- **ReBAC**: a user can access a customer when OPA data says the user is `relationship_manager_of` that customer.
+- **ReBAC audit purpose**: `auditor_of` allows access only when `x-purpose=audit`.
 - `role=admin` can read all customers and `/admin/customers`.
 
 The REST API returns mock business data only. It does not decide who is allowed to see that data.
@@ -213,7 +269,11 @@ Policies are split by domain:
 - `common.rego`: shared request parsing, JWT extraction, roles and helper rules
 - `health.rego`: health endpoint access
 - `customers.rego`: customer account access policies
+- `abac.rego`: attribute-based customer access policies
+- `rebac.rego`: relationship-based customer access policies
 - `admin.rego`: administrative customer access policies
+- `opa/data/customers.json`: customer resource attributes used by ABAC
+- `opa/data/relationships.json`: user-resource relationships used by ReBAC
 
 This demonstrates that policy-based authorization can be centralized at the enforcement/decision level while still keeping policy ownership modular and domain-oriented.
 

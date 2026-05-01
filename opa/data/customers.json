@@ -1,0 +1,16 @@
+{
+  "customers": {
+    "CUST-001": {
+      "region": "GR",
+      "segment": "corporate"
+    },
+    "CUST-002": {
+      "region": "GR",
+      "segment": "retail"
+    },
+    "CUST-003": {
+      "region": "DE",
+      "segment": "corporate"
+    }
+  }
+}
