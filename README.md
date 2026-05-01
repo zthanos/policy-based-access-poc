@@ -127,6 +127,7 @@ The diagrams separate the major responsibilities into APIM, ingress, service, an
 make deploy
 make test
 make clean
+make clean-deploy-test
 ```
 
 PowerShell equivalents:
@@ -147,7 +148,7 @@ PowerShell equivalents:
 - OpenTelemetry Collector HTTP OTLP: `http://localhost:4318`
 - Jaeger UI: `http://localhost:16686`
 
-Then it runs `client/client.py`. The client calls only Kong on `localhost:10000`; direct Envoy access is kept only for internal debugging.
+Then it runs `client/client.py`. The client calls only Kong on `localhost:10000`; direct Envoy access is kept only for internal debugging. Use `make clean-deploy-test` when you want a full clean redeploy followed by the traced scenario run.
 
 ## Expected Test Output
 
@@ -165,11 +166,15 @@ ReBAC auditor1 sales CUST-002                -> 403 trace_id=...
 GET /admin/customers as user1                -> 403 trace_id=...
 GET /admin/customers as admin                -> 200 trace_id=...
 GET /customers/CUST-001/accounts no token    -> 401 trace_id=...
+
+All scenarios passed.
+Waiting for trace export to settle in Jaeger...
+Verified 13 trace(s) in Jaeger.
 ```
 
 ## Trace Inspection
 
-`make test` prints a trace id for each scenario. The script keeps the Jaeger port-forward open after the test so you can inspect traces at `http://localhost:16686`.
+`make test` prints a trace id for each scenario and verifies that all printed trace ids are queryable from Jaeger before it exits. The script keeps the Jaeger port-forward open after the test so you can inspect traces at `http://localhost:16686`.
 
 If Jaeger is not already open, start it manually:
 
